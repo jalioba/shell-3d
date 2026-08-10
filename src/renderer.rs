@@ -13,6 +13,7 @@ use crate::mesh::Mesh;
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum RenderMode {
     ShadedASCII,
+    ShadedBlock,
     Wireframe,
 }
 
@@ -24,8 +25,11 @@ pub struct Renderer {
     pub render_mode: RenderMode,
 }
 
-// Grayscale ramp from darkest to brightest
+// Grayscale ASCII ramp from darkest to brightest
 const ASCII_RAMP: &[char] = &[' ', '.', ':', '-', '=', '+', '*', '#', '%', '@'];
+
+// Unicode Block character ramp from darkest to brightest (░ -> ▒ -> ▓ -> █)
+const BLOCK_RAMP: &[char] = &[' ', '░', '▒', '▓', '█'];
 
 impl Renderer {
     pub fn new(width: usize, height: usize) -> Self {
@@ -54,7 +58,8 @@ impl Renderer {
 
     pub fn toggle_render_mode(&mut self) {
         self.render_mode = match self.render_mode {
-            RenderMode::ShadedASCII => RenderMode::Wireframe,
+            RenderMode::ShadedASCII => RenderMode::ShadedBlock,
+            RenderMode::ShadedBlock => RenderMode::Wireframe,
             RenderMode::Wireframe => RenderMode::ShadedASCII,
         };
     }
@@ -68,7 +73,8 @@ impl Renderer {
         }
 
         let (mvp, model) = camera.get_mvp_matrix(self.width as u16, self.height as u16);
-        let light_dir = Vec3::new(0.5, 1.0, 0.8).normalize();
+        // Camera-facing directional light source
+        let light_dir = Vec3::new(0.2, 0.4, 1.0).normalize();
 
         for triangle in &mesh.triangles {
             // Transform normal to world space
@@ -85,16 +91,22 @@ impl Renderer {
             let p2 = Camera::project_to_screen(v2_clip, self.width, self.height);
 
             if let (Some(p0), Some(p1), Some(p2)) = (p0, p1, p2) {
-                // Backface culling check in 2D screen space
+                // Backface culling check in 2D screen space (only for solid shaded modes)
                 let area = (p1.x - p0.x) * (p2.y - p0.y) - (p1.y - p0.y) * (p2.x - p0.x);
-                if area <= 0.0 && self.render_mode == RenderMode::ShadedASCII {
-                    continue; // Skip back-facing triangles in solid mode
+                if area <= 0.0 && self.render_mode != RenderMode::Wireframe {
+                    continue; // Skip back-facing triangles in solid modes
                 }
+
+                // Two-sided lighting calculation to ensure all faces light up properly
+                let dot_light = world_normal.dot(light_dir).abs();
+                let intensity = (dot_light * 0.85 + 0.15).clamp(0.0, 1.0);
 
                 match self.render_mode {
                     RenderMode::ShadedASCII => {
-                        let intensity = world_normal.dot(light_dir).max(0.1);
-                        self.draw_triangle_shaded(p0, p1, p2, intensity);
+                        self.draw_triangle_shaded(p0, p1, p2, intensity, ASCII_RAMP);
+                    }
+                    RenderMode::ShadedBlock => {
+                        self.draw_triangle_shaded(p0, p1, p2, intensity, BLOCK_RAMP);
                     }
                     RenderMode::Wireframe => {
                         self.draw_line_3d(p0, p1, '*');
@@ -106,8 +118,8 @@ impl Renderer {
         }
     }
 
-    /// Draw shaded triangle using Barycentric Coordinates
-    fn draw_triangle_shaded(&mut self, p0: Vec3, p1: Vec3, p2: Vec3, intensity: f32) {
+    /// Draw shaded triangle using Barycentric Coordinates and character ramp
+    fn draw_triangle_shaded(&mut self, p0: Vec3, p1: Vec3, p2: Vec3, intensity: f32, ramp: &[char]) {
         let min_x = (p0.x.min(p1.x).min(p2.x).floor() as i32).clamp(0, self.width as i32 - 1) as usize;
         let max_x = (p0.x.max(p1.x).max(p2.x).ceil() as i32).clamp(0, self.width as i32 - 1) as usize;
         let min_y = (p0.y.min(p1.y).min(p2.y).floor() as i32).clamp(0, self.height as i32 - 1) as usize;
@@ -118,10 +130,10 @@ impl Renderer {
             return;
         }
 
-        // Map intensity to ASCII ramp char
-        let ramp_idx = ((intensity * (ASCII_RAMP.len() - 1) as f32).round() as usize)
-            .clamp(0, ASCII_RAMP.len() - 1);
-        let ch = ASCII_RAMP[ramp_idx];
+        // Map intensity evenly across all ramp indices, ensuring top index (e.g. '█' or '@') is reached cleanly
+        let max_idx = (ramp.len() - 1) as f32;
+        let ramp_idx = ((intensity * (max_idx + 0.8)).floor() as usize).clamp(0, ramp.len() - 1);
+        let ch = ramp[ramp_idx];
 
         for y in min_y..=max_y {
             for x in min_x..=max_x {

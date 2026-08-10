@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 use clap::Parser;
 use crossterm::{
     cursor::{Hide, Show},
-    event::{self, Event, KeyCode, KeyModifiers},
+    event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
     execute,
     terminal::{self, disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -19,7 +19,7 @@ use mesh::Mesh;
 use primitives::{create_cube, create_pyramid, create_sphere, create_torus};
 use renderer::{RenderMode, Renderer};
 
-/// Terminal 3D Model Viewer
+/// Terminal 3D Model Viewer (Shell-3D)
 #[derive(Parser, Debug)]
 #[command(author, version, about = "3D Model Viewer in the Terminal (ASCII Renderer with Z-Buffer)", long_about = None)]
 struct Args {
@@ -31,6 +31,20 @@ struct Args {
     #[arg(short, long, default_value = "cube")]
     primitive: String,
 }
+
+#[cfg(target_os = "windows")]
+fn enable_windows_utf8() {
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn SetConsoleOutputCP(wCodePageID: u32) -> i32;
+    }
+    unsafe {
+        SetConsoleOutputCP(65001);
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn enable_windows_utf8() {}
 
 fn set_panic_hook() {
     let original_hook = std::panic::take_hook();
@@ -62,6 +76,7 @@ fn load_mesh(args: &Args) -> Mesh {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    enable_windows_utf8();
     let args = Args::parse();
     set_panic_hook();
 
@@ -92,6 +107,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut frame_count = 0;
     let mut fps_timer = Instant::now();
 
+    // Key press debouncing timers
+    let mut last_mode_switch = Instant::now() - Duration::from_secs(1);
+    let mut last_primitive_switch = Instant::now() - Duration::from_secs(1);
+    const DEBOUNCE_COOLDOWN: Duration = Duration::from_millis(300);
+
     loop {
         let now = Instant::now();
         let delta_time = now.duration_since(last_time).as_secs_f32();
@@ -108,54 +128,65 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let rotation_speed = 2.0 * delta_time;
         if event::poll(Duration::from_millis(16))? {
             if let Event::Key(key_event) = event::read()? {
-                // Exit condition
-                if key_event.code == KeyCode::Esc
-                    || (key_event.code == KeyCode::Char('c') && key_event.modifiers.contains(KeyModifiers::CONTROL))
-                {
-                    break;
-                }
-
-                match key_event.code {
-                    // Arrow Keys Rotation
-                    KeyCode::Left => camera.rotate(0.0, -rotation_speed * 1.5, 0.0),
-                    KeyCode::Right => camera.rotate(0.0, rotation_speed * 1.5, 0.0),
-                    KeyCode::Up => camera.rotate(-rotation_speed * 1.5, 0.0, 0.0),
-                    KeyCode::Down => camera.rotate(rotation_speed * 1.5, 0.0, 0.0),
-
-                    // Z-axis Rotation (Q / E)
-                    KeyCode::Char('q') | KeyCode::Char('Q') => camera.rotate(0.0, 0.0, -rotation_speed),
-                    KeyCode::Char('e') | KeyCode::Char('E') => camera.rotate(0.0, 0.0, rotation_speed),
-
-                    // Zoom Controls (+ / - or W / S)
-                    KeyCode::Char('+') | KeyCode::Char('=') | KeyCode::Char('w') | KeyCode::Char('W') => {
-                        camera.zoom(0.15);
-                    }
-                    KeyCode::Char('-') | KeyCode::Char('_') | KeyCode::Char('s') | KeyCode::Char('S') => {
-                        camera.zoom(-0.15);
+                // Ignore key release events to prevent duplicate triggers
+                if key_event.kind == KeyEventKind::Release {
+                    // Continue rendering
+                } else {
+                    // Exit condition
+                    if key_event.code == KeyCode::Esc
+                        || (key_event.code == KeyCode::Char('c') && key_event.modifiers.contains(KeyModifiers::CONTROL))
+                    {
+                        break;
                     }
 
-                    // Mode Toggle (M)
-                    KeyCode::Char('m') | KeyCode::Char('M') => {
-                        renderer.toggle_render_mode();
-                    }
+                    match key_event.code {
+                        // Arrow Keys Rotation
+                        KeyCode::Left => camera.rotate(0.0, -rotation_speed * 1.5, 0.0),
+                        KeyCode::Right => camera.rotate(0.0, rotation_speed * 1.5, 0.0),
+                        KeyCode::Up => camera.rotate(-rotation_speed * 1.5, 0.0, 0.0),
+                        KeyCode::Down => camera.rotate(rotation_speed * 1.5, 0.0, 0.0),
 
-                    // Reset Camera (R)
-                    KeyCode::Char('r') | KeyCode::Char('R') => {
-                        camera.reset();
-                    }
+                        // Z-axis Rotation (Q / E)
+                        KeyCode::Char('q') | KeyCode::Char('Q') => camera.rotate(0.0, 0.0, -rotation_speed),
+                        KeyCode::Char('e') | KeyCode::Char('E') => camera.rotate(0.0, 0.0, rotation_speed),
 
-                    // Cycle Primitives (P)
-                    KeyCode::Char('p') | KeyCode::Char('P') => {
-                        current_primitive_idx = (current_primitive_idx + 1) % 4;
-                        mesh = match current_primitive_idx {
-                            0 => create_cube(),
-                            1 => create_pyramid(),
-                            2 => create_sphere(16, 24),
-                            _ => create_torus(0.7, 0.3, 20, 16),
-                        };
-                    }
+                        // Zoom Controls (+ / - or W / S)
+                        KeyCode::Char('+') | KeyCode::Char('=') | KeyCode::Char('w') | KeyCode::Char('W') => {
+                            camera.zoom(0.15);
+                        }
+                        KeyCode::Char('-') | KeyCode::Char('_') | KeyCode::Char('s') | KeyCode::Char('S') => {
+                            camera.zoom(-0.15);
+                        }
 
-                    _ => {}
+                        // Mode Toggle (M) with 300ms cooldown debounce
+                        KeyCode::Char('m') | KeyCode::Char('M') => {
+                            if now.duration_since(last_mode_switch) >= DEBOUNCE_COOLDOWN {
+                                renderer.toggle_render_mode();
+                                last_mode_switch = now;
+                            }
+                        }
+
+                        // Reset Camera (R)
+                        KeyCode::Char('r') | KeyCode::Char('R') => {
+                            camera.reset();
+                        }
+
+                        // Cycle Primitives (P) with 300ms cooldown debounce
+                        KeyCode::Char('p') | KeyCode::Char('P') => {
+                            if now.duration_since(last_primitive_switch) >= DEBOUNCE_COOLDOWN {
+                                current_primitive_idx = (current_primitive_idx + 1) % 4;
+                                mesh = match current_primitive_idx {
+                                    0 => create_cube(),
+                                    1 => create_pyramid(),
+                                    2 => create_sphere(16, 24),
+                                    _ => create_torus(0.7, 0.3, 20, 16),
+                                };
+                                last_primitive_switch = now;
+                            }
+                        }
+
+                        _ => {}
+                    }
                 }
             } else if let Event::Resize(w, h) = event::read()? {
                 term_w = w;
@@ -172,6 +203,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Status overlay line
         let mode_str = match renderer.render_mode {
             RenderMode::ShadedASCII => "ASCII Solid",
+            RenderMode::ShadedBlock => "Unicode Block (█░▒)",
             RenderMode::Wireframe => "Wireframe",
         };
 
