@@ -190,6 +190,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     disable_raw_mode()?;
     execute!(stdout, LeaveAlternateScreen, Show)?;
 
-    println!("Exited Shell-Blender successfully.");
+    println!("Exited Shell-3D successfully.");
     Ok(())
 }

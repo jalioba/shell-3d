@@ -1,5 +1,5 @@
 [package]
-name = "shell-blender"
+name = "shell-3d"
 version = "0.1.0"
 edition = "2021"
 description = "Interactive 3D Model Viewer in the Terminal (ASCII Renderer with Z-Buffer)"
