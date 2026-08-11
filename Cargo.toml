@@ -10,3 +10,5 @@ glam = "0.29"
 tobj = { version = "4.0", default-features = false }
 stl_io = "0.7"
 clap = { version = "4.5", features = ["derive"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"

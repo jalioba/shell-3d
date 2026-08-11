@@ -23,6 +23,7 @@ pub struct Renderer {
     char_buffer: Vec<char>,
     z_buffer: Vec<f32>,
     pub render_mode: RenderMode,
+    pub show_hud: bool,
 }
 
 // Grayscale ASCII ramp from darkest to brightest
@@ -40,6 +41,7 @@ impl Renderer {
             char_buffer: vec![' '; size],
             z_buffer: vec![f32::INFINITY; size],
             render_mode: RenderMode::ShadedASCII,
+            show_hud: true,
         }
     }
 
@@ -62,6 +64,10 @@ impl Renderer {
             RenderMode::ShadedBlock => RenderMode::Wireframe,
             RenderMode::Wireframe => RenderMode::ShadedASCII,
         };
+    }
+
+    pub fn toggle_hud(&mut self) {
+        self.show_hud = !self.show_hud;
     }
 
     /// Main render method for a mesh given camera state
@@ -220,15 +226,23 @@ impl Renderer {
         // Output rendered frame
         write!(stdout, "{}", output)?;
 
-        // Output overlay status bar at bottom
-        queue!(
-            stdout,
-            cursor::MoveTo(0, self.height as u16),
-            terminal::Clear(terminal::ClearType::CurrentLine),
-            SetForegroundColor(Color::Cyan),
-            style::Print(status_line),
-            ResetColor
-        )?;
+        // Output overlay status bar if HUD is enabled
+        if self.show_hud {
+            queue!(
+                stdout,
+                cursor::MoveTo(0, self.height as u16),
+                terminal::Clear(terminal::ClearType::CurrentLine),
+                SetForegroundColor(Color::Cyan),
+                style::Print(status_line),
+                ResetColor
+            )?;
+        } else {
+            queue!(
+                stdout,
+                cursor::MoveTo(0, self.height as u16),
+                terminal::Clear(terminal::ClearType::CurrentLine)
+            )?;
+        }
 
         stdout.flush()
     }
