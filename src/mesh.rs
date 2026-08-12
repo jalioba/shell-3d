@@ -30,13 +30,20 @@ impl Triangle {
 pub struct Mesh {
     pub triangles: Vec<Triangle>,
     pub name: String,
+    pub base_color: (u8, u8, u8),
 }
 
 impl Mesh {
+    #[allow(dead_code)]
     pub fn new(name: impl Into<String>, triangles: Vec<Triangle>) -> Self {
+        Self::new_with_color(name, triangles, (0, 210, 255))
+    }
+
+    pub fn new_with_color(name: impl Into<String>, triangles: Vec<Triangle>, color: (u8, u8, u8)) -> Self {
         let mut mesh = Mesh {
             triangles,
             name: name.into(),
+            base_color: color,
         };
         mesh.normalize_and_center();
         mesh
@@ -115,7 +122,7 @@ impl Mesh {
             .unwrap_or("Model")
             .to_string();
 
-        Ok(Mesh::new(name, triangles))
+        Ok(Mesh::new_with_color(name, triangles, (0, 210, 255)))
     }
 
     /// Load mesh from STL file (binary or ASCII)
@@ -150,7 +157,7 @@ impl Mesh {
             .unwrap_or("Model")
             .to_string();
 
-        Ok(Mesh::new(name, triangles))
+        Ok(Mesh::new_with_color(name, triangles, (0, 210, 255)))
     }
 
     /// Load mesh automatically detecting format from file extension

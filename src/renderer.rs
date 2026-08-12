@@ -21,9 +21,11 @@ pub struct Renderer {
     width: usize,
     height: usize,
     char_buffer: Vec<char>,
+    color_buffer: Vec<(u8, u8, u8)>,
     z_buffer: Vec<f32>,
     pub render_mode: RenderMode,
     pub show_hud: bool,
+    pub color_enabled: bool,
 }
 
 // Grayscale ASCII ramp from darkest to brightest
@@ -39,9 +41,11 @@ impl Renderer {
             width,
             height,
             char_buffer: vec![' '; size],
+            color_buffer: vec![(255, 255, 255); size],
             z_buffer: vec![f32::INFINITY; size],
             render_mode: RenderMode::ShadedASCII,
             show_hud: true,
+            color_enabled: true,
         }
     }
 
@@ -50,11 +54,13 @@ impl Renderer {
         self.height = height;
         let size = width * height;
         self.char_buffer = vec![' '; size];
+        self.color_buffer = vec![(255, 255, 255); size];
         self.z_buffer = vec![f32::INFINITY; size];
     }
 
     pub fn clear(&mut self) {
         self.char_buffer.fill(' ');
+        self.color_buffer.fill((255, 255, 255));
         self.z_buffer.fill(f32::INFINITY);
     }
 
@@ -68,6 +74,10 @@ impl Renderer {
 
     pub fn toggle_hud(&mut self) {
         self.show_hud = !self.show_hud;
+    }
+
+    pub fn toggle_color(&mut self) {
+        self.color_enabled = !self.color_enabled;
     }
 
     /// Main render method for a mesh given camera state
@@ -109,23 +119,31 @@ impl Renderer {
 
                 match self.render_mode {
                     RenderMode::ShadedASCII => {
-                        self.draw_triangle_shaded(p0, p1, p2, intensity, ASCII_RAMP);
+                        self.draw_triangle_shaded(p0, p1, p2, intensity, ASCII_RAMP, mesh.base_color);
                     }
                     RenderMode::ShadedBlock => {
-                        self.draw_triangle_shaded(p0, p1, p2, intensity, BLOCK_RAMP);
+                        self.draw_triangle_shaded(p0, p1, p2, intensity, BLOCK_RAMP, mesh.base_color);
                     }
                     RenderMode::Wireframe => {
-                        self.draw_line_3d(p0, p1, '*');
-                        self.draw_line_3d(p1, p2, '*');
-                        self.draw_line_3d(p2, p0, '*');
+                        self.draw_line_3d(p0, p1, '*', mesh.base_color);
+                        self.draw_line_3d(p1, p2, '*', mesh.base_color);
+                        self.draw_line_3d(p2, p0, '*', mesh.base_color);
                     }
                 }
             }
         }
     }
 
-    /// Draw shaded triangle using Barycentric Coordinates and character ramp
-    fn draw_triangle_shaded(&mut self, p0: Vec3, p1: Vec3, p2: Vec3, intensity: f32, ramp: &[char]) {
+    /// Draw shaded triangle using Barycentric Coordinates, character ramp, and RGB lighting
+    fn draw_triangle_shaded(
+        &mut self,
+        p0: Vec3,
+        p1: Vec3,
+        p2: Vec3,
+        intensity: f32,
+        ramp: &[char],
+        base_color: (u8, u8, u8),
+    ) {
         let min_x = (p0.x.min(p1.x).min(p2.x).floor() as i32).clamp(0, self.width as i32 - 1) as usize;
         let max_x = (p0.x.max(p1.x).max(p2.x).ceil() as i32).clamp(0, self.width as i32 - 1) as usize;
         let min_y = (p0.y.min(p1.y).min(p2.y).floor() as i32).clamp(0, self.height as i32 - 1) as usize;
@@ -136,10 +154,16 @@ impl Renderer {
             return;
         }
 
-        // Map intensity evenly across all ramp indices, ensuring top index (e.g. '█' or '@') is reached cleanly
+        // Map intensity to ramp character
         let max_idx = (ramp.len() - 1) as f32;
         let ramp_idx = ((intensity * (max_idx + 0.8)).floor() as usize).clamp(0, ramp.len() - 1);
         let ch = ramp[ramp_idx];
+
+        // Multiply base RGB color by light intensity for 3D TrueColor volume shading
+        let r = ((base_color.0 as f32) * intensity).clamp(0.0, 255.0) as u8;
+        let g = ((base_color.1 as f32) * intensity).clamp(0.0, 255.0) as u8;
+        let b = ((base_color.2 as f32) * intensity).clamp(0.0, 255.0) as u8;
+        let pixel_color = (r, g, b);
 
         for y in min_y..=max_y {
             for x in min_x..=max_x {
@@ -157,6 +181,7 @@ impl Renderer {
                     if depth < self.z_buffer[idx] {
                         self.z_buffer[idx] = depth;
                         self.char_buffer[idx] = ch;
+                        self.color_buffer[idx] = pixel_color;
                     }
                 }
             }
@@ -164,7 +189,7 @@ impl Renderer {
     }
 
     /// Bresenham's 3D Line rasterizer for wireframe mode
-    fn draw_line_3d(&mut self, p0: Vec3, p1: Vec3, ch: char) {
+    fn draw_line_3d(&mut self, p0: Vec3, p1: Vec3, ch: char, color: (u8, u8, u8)) {
         let mut x0 = p0.x as i32;
         let mut y0 = p0.y as i32;
         let x1 = p1.x as i32;
@@ -190,6 +215,7 @@ impl Renderer {
                 if depth < self.z_buffer[idx] {
                     self.z_buffer[idx] = depth;
                     self.char_buffer[idx] = ch;
+                    self.color_buffer[idx] = color;
                 }
             }
 
@@ -209,22 +235,43 @@ impl Renderer {
         }
     }
 
-    /// Flush the char buffer to terminal stdout cleanly
+    /// Flush the char buffer to terminal stdout cleanly with TrueColor ANSI support
     pub fn present(&self, stdout: &mut io::Stdout, status_line: &str) -> io::Result<()> {
         queue!(stdout, cursor::MoveTo(0, 0))?;
 
-        let mut output = String::with_capacity((self.width + 1) * self.height + 200);
+        if self.color_enabled {
+            let mut current_color: Option<(u8, u8, u8)> = None;
 
-        for y in 0..self.height {
-            let start = y * self.width;
-            let end = start + self.width;
-            let row = &self.char_buffer[start..end];
-            output.extend(row);
-            output.push('\n');
+            for y in 0..self.height {
+                queue!(stdout, cursor::MoveTo(0, y as u16))?;
+                for x in 0..self.width {
+                    let idx = x + y * self.width;
+                    let ch = self.char_buffer[idx];
+
+                    if ch == ' ' {
+                        write!(stdout, " ")?;
+                    } else {
+                        let color = self.color_buffer[idx];
+                        if current_color != Some(color) {
+                            queue!(stdout, SetForegroundColor(Color::Rgb { r: color.0, g: color.1, b: color.2 }))?;
+                            current_color = Some(color);
+                        }
+                        write!(stdout, "{}", ch)?;
+                    }
+                }
+            }
+            queue!(stdout, ResetColor)?;
+        } else {
+            let mut output = String::with_capacity((self.width + 1) * self.height + 200);
+            for y in 0..self.height {
+                let start = y * self.width;
+                let end = start + self.width;
+                let row = &self.char_buffer[start..end];
+                output.extend(row);
+                output.push('\n');
+            }
+            write!(stdout, "{}", output)?;
         }
-
-        // Output rendered frame
-        write!(stdout, "{}", output)?;
 
         // Output overlay status bar if HUD is enabled
         if self.show_hud {

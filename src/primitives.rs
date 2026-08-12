@@ -34,7 +34,7 @@ pub fn create_cube() -> Mesh {
         triangles.push(Triangle::new(vertices[idx[0]], vertices[idx[1]], vertices[idx[2]]));
     }
 
-    Mesh::new("Cube", triangles)
+    Mesh::new_with_color("Cube", triangles, (100, 200, 255)) // Cyber Blue
 }
 
 /// Generates a procedural 3D Pyramid
@@ -56,7 +56,7 @@ pub fn create_pyramid() -> Mesh {
         Triangle::new(v0, v2, v1),
     ];
 
-    Mesh::new("Pyramid", triangles)
+    Mesh::new_with_color("Pyramid", triangles, (255, 180, 40)) // Gold / Amber
 }
 
 /// Generates a procedural UV Sphere
@@ -97,7 +97,7 @@ pub fn create_sphere(stacks: usize, slices: usize) -> Mesh {
         }
     }
 
-    Mesh::new("Sphere", triangles)
+    Mesh::new_with_color("Sphere", triangles, (50, 220, 120)) // Emerald Green
 }
 
 /// Generates a procedural Torus (Donut)
@@ -138,5 +138,5 @@ pub fn create_torus(main_radius: f32, tube_radius: f32, num_main: usize, num_tub
         }
     }
 
-    Mesh::new("Torus (Donut)", triangles)
+    Mesh::new_with_color("Torus (Donut)", triangles, (255, 90, 150)) // Neon Pink / Coral
 }

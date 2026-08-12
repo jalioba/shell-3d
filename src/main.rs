@@ -161,6 +161,7 @@ fn run_replay_mode(animation_file: &str) -> Result<(), Box<dyn std::error::Error
         camera.rotation_z = f0.rotation_z + t * (f1.rotation_z - f0.rotation_z);
         camera.distance = f0.distance + t * (f1.distance - f0.distance);
 
+        renderer.color_enabled = f0.color_enabled;
         renderer.render_mode = if t < 0.5 {
             match f0.render_mode {
                 0 => RenderMode::ShadedASCII,
@@ -230,6 +231,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut last_mode_switch = Instant::now() - Duration::from_secs(1);
     let mut last_primitive_switch = Instant::now() - Duration::from_secs(1);
     let mut last_hud_switch = Instant::now() - Duration::from_secs(1);
+    let mut last_color_switch = Instant::now() - Duration::from_secs(1);
     let mut last_record_switch = Instant::now() - Duration::from_secs(1);
     const DEBOUNCE_COOLDOWN: Duration = Duration::from_millis(300);
 
@@ -292,6 +294,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             if now.duration_since(last_hud_switch) >= DEBOUNCE_COOLDOWN {
                                 renderer.toggle_hud();
                                 last_hud_switch = now;
+                            }
+                        }
+
+                        // Color Toggle (C)
+                        KeyCode::Char('c') | KeyCode::Char('C') => {
+                            if now.duration_since(last_color_switch) >= DEBOUNCE_COOLDOWN {
+                                renderer.toggle_color();
+                                last_color_switch = now;
                             }
                         }
 
@@ -393,6 +403,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     rotation_z: camera.rotation_z,
                     distance: camera.distance,
                     render_mode: mode_u8,
+                    color_enabled: renderer.color_enabled,
                     time_ms,
                 });
             }
@@ -408,6 +419,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             RenderMode::ShadedBlock => "Unicode Block (█░▒)",
             RenderMode::Wireframe => "Wireframe",
         };
+
+        let color_str = if renderer.color_enabled { "ON" } else { "OFF" };
 
         let status = match record_state {
             RecordState::Countdown(start_time) => {
@@ -427,21 +440,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             RecordState::Idle => {
                 if let Some((ref msg, time)) = notification_msg {
                     if time.elapsed() < Duration::from_secs(3) {
-                        format!(" NOTICE: {} | Mode: {} [M] | Nav: Arrow Keys | ESC: Quit", msg, mode_str)
+                        format!(" NOTICE: {} | Mode: {} [M] | Color: {} [C] | ESC: Quit", msg, mode_str, color_str)
                     } else {
                         notification_msg = None;
                         format!(
-                            " Model: {} | Triangles: {} | FPS: {:.0} | Mode: {} [M] | K: Record | H: HUD | ESC: Quit",
-                            mesh.name, mesh.triangles.len(), fps, mode_str
+                            " Model: {} | Triangles: {} | FPS: {:.0} | Mode: {} [M] | Color: {} [C] | K: Record | ESC: Quit",
+                            mesh.name, mesh.triangles.len(), fps, mode_str, color_str
                         )
                     }
                 } else {
                     format!(
-                        " Model: {} | Triangles: {} | FPS: {:.0} | Mode: {} [M] | K: Record | H: HUD | ESC: Quit",
+                        " Model: {} | Triangles: {} | FPS: {:.0} | Mode: {} [M] | Color: {} [C] | K: Record | ESC: Quit",
                         mesh.name,
                         mesh.triangles.len(),
                         fps,
-                        mode_str
+                        mode_str,
+                        color_str
                     )
                 }
             }
