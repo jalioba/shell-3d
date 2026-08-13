@@ -17,6 +17,72 @@ pub enum RenderMode {
     Wireframe,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ColorMode {
+    MultiColor,
+    SingleCyan,
+    SingleRed,
+    SingleGreen,
+    SingleGold,
+    SinglePurple,
+    SingleWhite,
+    Monochrome,
+}
+
+impl ColorMode {
+    pub fn next(&self) -> Self {
+        match self {
+            ColorMode::MultiColor => ColorMode::SingleCyan,
+            ColorMode::SingleCyan => ColorMode::SingleRed,
+            ColorMode::SingleRed => ColorMode::SingleGreen,
+            ColorMode::SingleGreen => ColorMode::SingleGold,
+            ColorMode::SingleGold => ColorMode::SinglePurple,
+            ColorMode::SinglePurple => ColorMode::SingleWhite,
+            ColorMode::SingleWhite => ColorMode::Monochrome,
+            ColorMode::Monochrome => ColorMode::MultiColor,
+        }
+    }
+
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            ColorMode::MultiColor => "Multi",
+            ColorMode::SingleCyan => "Cyan",
+            ColorMode::SingleRed => "Red",
+            ColorMode::SingleGreen => "Green",
+            ColorMode::SingleGold => "Gold",
+            ColorMode::SinglePurple => "Purple",
+            ColorMode::SingleWhite => "White",
+            ColorMode::Monochrome => "OFF",
+        }
+    }
+
+    pub fn to_u8(&self) -> u8 {
+        match self {
+            ColorMode::MultiColor => 0,
+            ColorMode::SingleCyan => 1,
+            ColorMode::SingleRed => 2,
+            ColorMode::SingleGreen => 3,
+            ColorMode::SingleGold => 4,
+            ColorMode::SinglePurple => 5,
+            ColorMode::SingleWhite => 6,
+            ColorMode::Monochrome => 7,
+        }
+    }
+
+    pub fn from_u8(val: u8) -> Self {
+        match val {
+            0 => ColorMode::MultiColor,
+            1 => ColorMode::SingleCyan,
+            2 => ColorMode::SingleRed,
+            3 => ColorMode::SingleGreen,
+            4 => ColorMode::SingleGold,
+            5 => ColorMode::SinglePurple,
+            6 => ColorMode::SingleWhite,
+            _ => ColorMode::Monochrome,
+        }
+    }
+}
+
 pub struct Renderer {
     width: usize,
     height: usize,
@@ -25,7 +91,7 @@ pub struct Renderer {
     z_buffer: Vec<f32>,
     pub render_mode: RenderMode,
     pub show_hud: bool,
-    pub color_enabled: bool,
+    pub color_mode: ColorMode,
 }
 
 // Grayscale ASCII ramp from darkest to brightest
@@ -45,7 +111,7 @@ impl Renderer {
             z_buffer: vec![f32::INFINITY; size],
             render_mode: RenderMode::ShadedASCII,
             show_hud: true,
-            color_enabled: true,
+            color_mode: ColorMode::MultiColor,
         }
     }
 
@@ -77,7 +143,7 @@ impl Renderer {
     }
 
     pub fn toggle_color(&mut self) {
-        self.color_enabled = !self.color_enabled;
+        self.color_mode = self.color_mode.next();
     }
 
     /// Main render method for a mesh given camera state
@@ -117,17 +183,29 @@ impl Renderer {
                 let dot_light = world_normal.dot(light_dir).abs();
                 let intensity = (dot_light * 0.85 + 0.15).clamp(0.0, 1.0);
 
+                // Effective base color determined by ColorMode
+                let face_color = match self.color_mode {
+                    ColorMode::MultiColor => triangle.color.unwrap_or(mesh.base_color),
+                    ColorMode::SingleCyan => (0, 210, 255),
+                    ColorMode::SingleRed => (235, 45, 45),
+                    ColorMode::SingleGreen => (45, 225, 110),
+                    ColorMode::SingleGold => (255, 185, 35),
+                    ColorMode::SinglePurple => (180, 95, 255),
+                    ColorMode::SingleWhite => (240, 240, 240),
+                    ColorMode::Monochrome => (255, 255, 255),
+                };
+
                 match self.render_mode {
                     RenderMode::ShadedASCII => {
-                        self.draw_triangle_shaded(p0, p1, p2, intensity, ASCII_RAMP, mesh.base_color);
+                        self.draw_triangle_shaded(p0, p1, p2, intensity, ASCII_RAMP, face_color);
                     }
                     RenderMode::ShadedBlock => {
-                        self.draw_triangle_shaded(p0, p1, p2, intensity, BLOCK_RAMP, mesh.base_color);
+                        self.draw_triangle_shaded(p0, p1, p2, intensity, BLOCK_RAMP, face_color);
                     }
                     RenderMode::Wireframe => {
-                        self.draw_line_3d(p0, p1, '*', mesh.base_color);
-                        self.draw_line_3d(p1, p2, '*', mesh.base_color);
-                        self.draw_line_3d(p2, p0, '*', mesh.base_color);
+                        self.draw_line_3d(p0, p1, '*', face_color);
+                        self.draw_line_3d(p1, p2, '*', face_color);
+                        self.draw_line_3d(p2, p0, '*', face_color);
                     }
                 }
             }
@@ -239,7 +317,7 @@ impl Renderer {
     pub fn present(&self, stdout: &mut io::Stdout, status_line: &str) -> io::Result<()> {
         queue!(stdout, cursor::MoveTo(0, 0))?;
 
-        if self.color_enabled {
+        if self.color_mode != ColorMode::Monochrome {
             let mut current_color: Option<(u8, u8, u8)> = None;
 
             for y in 0..self.height {

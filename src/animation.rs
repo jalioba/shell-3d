@@ -3,8 +3,8 @@ use std::fs::File;
 use std::io::{BufReader, BufWriter};
 use std::path::Path;
 
-fn default_color_enabled() -> bool {
-    true
+fn default_color_mode_u8() -> u8 {
+    0
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -14,8 +14,8 @@ pub struct FrameData {
     pub rotation_z: f32,
     pub distance: f32,
     pub render_mode: u8, // 0: ASCII, 1: Block, 2: Wireframe
-    #[serde(default = "default_color_enabled")]
-    pub color_enabled: bool,
+    #[serde(default = "default_color_mode_u8")]
+    pub color_mode_u8: u8, // 0: Multi, 1: Cyan, 2: Red, 3: Green, 4: Gold, 5: Purple, 6: White, 7: Off
     pub time_ms: u64,
 }
 

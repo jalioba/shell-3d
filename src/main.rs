@@ -19,7 +19,7 @@ use animation::{AnimationRecording, FrameData};
 use camera::Camera;
 use mesh::Mesh;
 use primitives::{create_cube, create_pyramid, create_sphere, create_torus};
-use renderer::{RenderMode, Renderer};
+use renderer::{ColorMode, RenderMode, Renderer};
 
 /// Terminal 3D Model Viewer (Shell-3D)
 #[derive(Parser, Debug)]
@@ -161,7 +161,7 @@ fn run_replay_mode(animation_file: &str) -> Result<(), Box<dyn std::error::Error
         camera.rotation_z = f0.rotation_z + t * (f1.rotation_z - f0.rotation_z);
         camera.distance = f0.distance + t * (f1.distance - f0.distance);
 
-        renderer.color_enabled = f0.color_enabled;
+        renderer.color_mode = ColorMode::from_u8(f0.color_mode_u8);
         renderer.render_mode = if t < 0.5 {
             match f0.render_mode {
                 0 => RenderMode::ShadedASCII,
@@ -297,7 +297,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             }
                         }
 
-                        // Color Toggle (C)
+                        // Color Toggle / Cycle (C)
                         KeyCode::Char('c') | KeyCode::Char('C') => {
                             if now.duration_since(last_color_switch) >= DEBOUNCE_COOLDOWN {
                                 renderer.toggle_color();
@@ -403,7 +403,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     rotation_z: camera.rotation_z,
                     distance: camera.distance,
                     render_mode: mode_u8,
-                    color_enabled: renderer.color_enabled,
+                    color_mode_u8: renderer.color_mode.to_u8(),
                     time_ms,
                 });
             }
@@ -420,7 +420,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             RenderMode::Wireframe => "Wireframe",
         };
 
-        let color_str = if renderer.color_enabled { "ON" } else { "OFF" };
+        let color_str = renderer.color_mode.display_name();
 
         let status = match record_state {
             RecordState::Countdown(start_time) => {
